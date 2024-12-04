@@ -1,0 +1,89 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: web-app-rg
+spec:
+  schema:
+    apiVersion: v1alpha1
+    # The name of your new Kubernetes resource
+    kind: WebApp
+    # Define what users can configure
+    spec:
+      name: string
+      image: string | default="nginx"
+      ingress:
+        enabled: boolean | default=false
+    status:
+      deploymentConditions: ${deployment.status.conditions}
+      availableReplicas: ${deployment.status.availableReplicas}
+  # Define your resources
+  resources:
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${schema.spec.name} # User-provided name
+      spec:
+        replicas: 3
+        selector:
+          matchLabels:
+            app: ${schema.spec.name}
+        template:
+          metadata:
+            labels:
+              app: ${schema.spec.name}
+          spec:
+            containers:
+            - name: ${schema.spec.name}
+              image: ${schema.spec.image} # Optionally user-provided image
+              ports:
+              - containerPort: 80
+  - id: service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${schema.spec.name}-service
+      spec:
+        selector: ${deployment.spec.selector.matchLabels} # Connect the deployment to the service
+        ports:
+        - protocol: TCP
+          port: 80
+          targetPort: 80
+  - id: ingressclass
+    template:
+      apiVersion: networking.k8s.io/v1
+      kind: IngressClass
+      metadata:
+        labels:
+          app.kubernetes.io/name: LoadBalancerController
+        name: alb
+      spec:
+        controller: eks.amazonaws.com/alb
+  - id: ingress
+    includeWhen:
+    - ${schema.spec.ingress.enabled} # Optionally created if ingress is true
+    template:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: ${schema.spec.name}-ingress
+        annotations:
+          alb.ingress.kubernetes.io/scheme: internet-facing
+          alb.ingress.kubernetes.io/target-type: ip
+          alb.ingress.kubernetes.io/healthcheck-path: /health
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+          alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=60
+      spec:
+        ingressClassName: alb
+        rules:
+        - http:
+            paths:
+            - path: "/"
+              pathType: Prefix
+              backend:
+                service:
+                  name: ${service.metadata.name} # Use the service name
+                  port:
+                    number: 80

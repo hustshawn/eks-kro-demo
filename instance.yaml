@@ -1,0 +1,8 @@
+apiVersion: kro.run/v1alpha1
+kind: WebApp
+metadata:
+  name: nginx-webapp
+spec:
+  name: nginx-app
+  ingress:
+    enabled: true
